@@ -4,13 +4,13 @@ Personal DevOps portfolio project built as a practical learning project.
 
 ## Current Progress
 
-HTML structure completed.
-
-CSS responsive design completed.
-
-JavaScript interactions completed.
-
-Git version control setup in progress.
+- HTML structure completed
+- Responsive CSS design completed
+- JavaScript interactions completed
+- Git version control configured
+- GitHub remote repository configured
+- Portfolio deployed with GitHub Pages
+- GitHub Actions CI workflow configured
 
 ## Version Control
 
