@@ -1,0 +1,71 @@
+name: Portfolio CI
+
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+
+permissions:
+  contents: read
+
+
+jobs:
+
+  validate:
+
+    name: Validate Portfolio
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 5
+
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+
+      - name: Verify required project files
+        shell: bash
+        run: |
+          test -f index.html
+          test -f css/style.css
+          test -f js/main.js
+          test -f README.md
+          test -f .gitignore
+
+          echo "All required project files exist."
+
+
+      - name: Verify HTML references
+        shell: bash
+        run: |
+          grep -q '<!DOCTYPE html>' index.html
+          grep -q 'css/style.css' index.html
+          grep -q 'js/main.js' index.html
+
+          echo "Basic HTML references look correct."
+
+
+      - name: Check for committed environment files
+        shell: bash
+        run: |
+          if git ls-files | grep -Eq '(^|/)\.env(\.local)?$'; then
+            echo "ERROR: A local environment file has been committed."
+            exit 1
+          fi
+
+          echo "No committed .env files detected."
+
+
+      - name: CI completed successfully
+        run: echo "Portfolio validation passed."
