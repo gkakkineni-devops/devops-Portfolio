@@ -23,7 +23,7 @@ jobs:
 
     name: Validate Portfolio
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     timeout-minutes: 5
 
@@ -42,6 +42,8 @@ jobs:
           test -f js/main.js
           test -f README.md
           test -f .gitignore
+          test -f Dockerfile
+          test -f .dockerignore
 
           echo "All required project files exist."
 
@@ -67,5 +69,106 @@ jobs:
           echo "No committed .env files detected."
 
 
-      - name: CI completed successfully
-        run: echo "Portfolio validation passed."
+      - name: Validation completed
+        run: echo "Portfolio source validation passed."
+
+
+
+  docker-test:
+
+    name: Docker Build and Test
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 10
+
+    needs: validate
+
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+
+      - name: Check Docker installation
+        run: docker version
+
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t devops-portfolio:ci \
+            .
+
+
+      - name: Start portfolio container
+        run: |
+          docker run \
+            --name portfolio-ci \
+            -d \
+            -p 127.0.0.1:8080:80 \
+            devops-portfolio:ci
+
+
+      - name: Verify container is running
+        run: |
+          docker ps
+
+          docker inspect \
+            --format='{{.State.Running}}' \
+            portfolio-ci
+
+
+      - name: Test portfolio website
+        shell: bash
+        run: |
+          echo "Waiting for Nginx to become available..."
+
+          for attempt in {1..10}; do
+
+            if curl -fsS \
+              http://127.0.0.1:8080/ \
+              -o /tmp/portfolio.html; then
+
+              echo "Portfolio responded successfully."
+              break
+            fi
+
+            echo "Attempt $attempt failed. Retrying..."
+            sleep 1
+
+          done
+
+
+          test -s /tmp/portfolio.html
+
+
+          grep -q \
+            'Gopala Krishna Akkineni' \
+            /tmp/portfolio.html
+
+
+          curl -fsS \
+            http://127.0.0.1:8080/css/style.css \
+            > /dev/null
+
+
+          curl -fsS \
+            http://127.0.0.1:8080/js/main.js \
+            > /dev/null
+
+
+          echo "Portfolio container tests passed."
+
+
+      - name: Show container logs
+        if: always()
+        run: |
+          docker logs portfolio-ci || true
+
+
+      - name: Clean up container
+        if: always()
+        run: |
+          docker rm -f portfolio-ci || true
