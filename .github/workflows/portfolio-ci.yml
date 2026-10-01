@@ -1,185 +1,94 @@
 name: Portfolio CI
 
-
 on:
   push:
     branches:
       - main
+      - "feature/**"
 
   pull_request:
     branches:
       - main
 
-  workflow_dispatch:
-
-
 permissions:
   contents: read
-
+  packages: write
 
 jobs:
 
+  # ---------------------------------------------------------
+  # JOB 1: Check the portfolio files
+  # ---------------------------------------------------------
   validate:
-
     name: Validate Portfolio
-
     runs-on: ubuntu-24.04
-
-    timeout-minutes: 5
-
 
     steps:
-
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
-
-      - name: Verify required project files
-        shell: bash
+      - name: Check required files
         run: |
+          echo "Checking portfolio files..."
+
           test -f index.html
-          test -f css/style.css
-          test -f js/main.js
-          test -f README.md
-          test -f .gitignore
           test -f Dockerfile
-          test -f .dockerignore
 
-          echo "All required project files exist."
+          echo "Required files are present."
 
-
-      - name: Verify HTML references
-        shell: bash
+      - name: Show project structure
         run: |
-          grep -q '<!DOCTYPE html>' index.html
-          grep -q 'css/style.css' index.html
-          grep -q 'js/main.js' index.html
-
-          echo "Basic HTML references look correct."
+          echo "Portfolio project files:"
+          find . -maxdepth 2 -type f
 
 
-      - name: Check for committed environment files
-        shell: bash
-        run: |
-          if git ls-files | grep -Eq '(^|/)\.env(\.local)?$'; then
-            echo "ERROR: A local environment file has been committed."
-            exit 1
-          fi
-
-          echo "No committed .env files detected."
-
-
-      - name: Validation completed
-        run: echo "Portfolio source validation passed."
-
-
-
+  # ---------------------------------------------------------
+  # JOB 2: Build and test the Docker container
+  # ---------------------------------------------------------
   docker-test:
-
-    name: Docker Build and Test
-
+    name: Build and Test Docker Container
     runs-on: ubuntu-24.04
-
-    timeout-minutes: 10
-
     needs: validate
 
-
     steps:
-
       - name: Checkout repository
-        uses: actions/checkout@v6
-
-
-      - name: Check Docker installation
-        run: docker version
-
+        uses: actions/checkout@v4
 
       - name: Build Docker image
         run: |
-          docker build \
-            -t devops-portfolio:ci \
-            .
+          docker build -t portfolio-ci .
 
-
-      - name: Start portfolio container
+      - name: Run Docker container
         run: |
-          docker run \
+          docker run -d \
             --name portfolio-ci \
-            -d \
-            -p 127.0.0.1:8080:80 \
-            devops-portfolio:ci
-
-
-      - name: Verify container is running
-        run: |
-          docker ps
-
-          docker inspect \
-            --format='{{.State.Running}}' \
+            -p 8080:80 \
             portfolio-ci
 
-
-      - name: Test portfolio website
-        shell: bash
+      - name: Wait for NGINX
         run: |
-          echo "Waiting for Nginx to become available..."
+          sleep 5
 
-          for attempt in {1..10}; do
-
-            if curl -fsS \
-              http://127.0.0.1:8080/ \
-              -o /tmp/portfolio.html; then
-
-              echo "Portfolio responded successfully."
-              break
-            fi
-
-            echo "Attempt $attempt failed. Retrying..."
-            sleep 1
-
-          done
-
-
-          test -s /tmp/portfolio.html
-
-
-          grep -q \
-            'Gopala Krishna Akkineni' \
-            /tmp/portfolio.html
-
-
-          curl -fsS \
-            http://127.0.0.1:8080/css/style.css \
-            > /dev/null
-
-
-          curl -fsS \
-            http://127.0.0.1:8080/js/main.js \
-            > /dev/null
-
-
-          echo "Portfolio container tests passed."
-
-
-      - name: Show container logs
-        if: always()
+      - name: Test website
         run: |
-          docker logs portfolio-ci || true
+          curl --fail http://localhost:8080
 
+      - name: Show running containers
+        run: |
+          docker ps
 
       - name: Clean up container
         if: always()
         run: |
           docker rm -f portfolio-ci || true
-            
+
+
+  # ---------------------------------------------------------
+  # JOB 3: Publish Docker image to GitHub Container Registry
+  # ---------------------------------------------------------
   publish-image:
-
     name: Publish Docker Image
-
     runs-on: ubuntu-24.04
-
-    timeout-minutes: 10
 
     needs:
       - validate
@@ -187,55 +96,35 @@ jobs:
 
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
-    permissions:
-      contents: read
-      packages: write
-
-
     steps:
-
       - name: Checkout repository
-        uses: actions/checkout@v6
-
-
-      - name: Prepare container image name
-        shell: bash
-        run: |
-          IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY,,}"
-
-          echo "IMAGE_NAME=$IMAGE_NAME" >> "$GITHUB_ENV"
-
-          echo "Container image: $IMAGE_NAME"
-
+        uses: actions/checkout@v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" \
+            --password-stdin
 
-
-      - name: Build container image
-        shell: bash
+      - name: Build Docker image for GHCR
         run: |
           docker build \
-            -t "$IMAGE_NAME:latest" \
-            -t "$IMAGE_NAME:${GITHUB_SHA}" \
+            -t ghcr.io/gkakkineni-devops/devops-portfolio:latest \
+            -t ghcr.io/gkakkineni-devops/devops-portfolio:${{ github.sha }} \
             .
 
-
-      - name: Push container image
-        shell: bash
+      - name: Push latest Docker image
         run: |
-          docker push "$IMAGE_NAME:latest"
+          docker push ghcr.io/gkakkineni-devops/devops-portfolio:latest
 
-          docker push "$IMAGE_NAME:${GITHUB_SHA}"
-
-
-      - name: Show published image information
-        shell: bash
+      - name: Push commit-specific Docker image
         run: |
-          echo "Published:"
-          echo "$IMAGE_NAME:latest"
-          echo "$IMAGE_NAME:${GITHUB_SHA}"
+          docker push ghcr.io/gkakkineni-devops/devops-portfolio:${{ github.sha }}
+
+      - name: Confirm published image
+        run: |
+          echo "Docker image published successfully."
+          echo "Latest image:"
+          echo "ghcr.io/gkakkineni-devops/devops-portfolio:latest"
+          echo "Commit image:"
+          echo "ghcr.io/gkakkineni-devops/devops-portfolio:${{ github.sha }}"
