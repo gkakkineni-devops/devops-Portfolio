@@ -172,3 +172,70 @@ jobs:
         if: always()
         run: |
           docker rm -f portfolio-ci || true
+            
+    publish-image:
+
+    name: Publish Docker Image
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 10
+
+    needs:
+      - validate
+      - docker-test
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      packages: write
+
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+
+      - name: Prepare container image name
+        shell: bash
+        run: |
+          IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY,,}"
+
+          echo "IMAGE_NAME=$IMAGE_NAME" >> "$GITHUB_ENV"
+
+          echo "Container image: $IMAGE_NAME"
+
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+
+      - name: Build container image
+        shell: bash
+        run: |
+          docker build \
+            -t "$IMAGE_NAME:latest" \
+            -t "$IMAGE_NAME:${GITHUB_SHA}" \
+            .
+
+
+      - name: Push container image
+        shell: bash
+        run: |
+          docker push "$IMAGE_NAME:latest"
+
+          docker push "$IMAGE_NAME:${GITHUB_SHA}"
+
+
+      - name: Show published image information
+        shell: bash
+        run: |
+          echo "Published:"
+          echo "$IMAGE_NAME:latest"
+          echo "$IMAGE_NAME:${GITHUB_SHA}"
